@@ -99,7 +99,7 @@ class FFMpegStreamInfo:
 class FFMpeg(AsyncProcess):
     """FFMpeg wrapped as AsyncProcess."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         audio_input: AsyncGenerator[bytes] | str | int,
         input_format: AudioFormat,
@@ -111,6 +111,7 @@ class FFMpeg(AsyncProcess):
         collect_log_history: bool = False,
         loglevel: str = "info",
         pass_fds: tuple[int, ...] = (),
+        verify_ssl: bool = True,
     ) -> None:
         """Initialize AsyncProcess."""
         ffmpeg_args = get_ffmpeg_args(
@@ -122,6 +123,7 @@ class FFMpeg(AsyncProcess):
             extra_input_args=extra_input_args or [],
             extra_output_args=extra_output_args or [],
             loglevel=loglevel,
+            verify_ssl=verify_ssl,
         )
         self.audio_input = audio_input
         self.input_format = input_format
@@ -396,11 +398,21 @@ def apply_stream_info(audio_format: AudioFormat, info: FFMpegStreamInfo) -> None
         audio_format.channels = info.channels
 
 
+def tls_verify_args(input_path: str, verify_ssl: bool) -> list[str]:
+    """Return the input args that skip certificate verification of an https source."""
+    # FFmpeg 9 verifies certificates by default; announcements and providers with a
+    # verify_ssl setting opt out for self-signed hosts
+    if verify_ssl or not input_path.startswith("https://"):
+        return []
+    return ["-tls_verify", "0"]
+
+
 async def probe_audio_stream(
     input_path: str,
     extra_input_args: Sequence[str] = (),
     timeout: float = AUDIO_PROBE_TIMEOUT,
     pass_fds: tuple[int, ...] = (),
+    verify_ssl: bool = True,
 ) -> FFMpegStreamInfo | None:
     """
     Detect the format of the first audio stream of a file or URL.
@@ -409,6 +421,7 @@ async def probe_audio_stream(
     :param extra_input_args: Input arguments needed to open the source (e.g. headers).
     :param timeout: Maximum seconds the probe may take.
     :param pass_fds: Descriptors ffprobe needs to open the source.
+    :param verify_ssl: Whether the certificate of an https source must be verified.
     :returns: The detected stream details, or None if the source could not be probed.
     """
     args = [
@@ -418,6 +431,7 @@ async def probe_audio_stream(
         "error",
         *_INPUT_READ_ARGS,
         *extra_input_args,
+        *tls_verify_args(input_path, verify_ssl),
         "-select_streams",
         "a:0",
         "-show_entries",
@@ -470,6 +484,7 @@ async def get_ffmpeg_stream(
     extra_input_args: list[str] | None = None,
     extra_output_args: list[str] | None = None,
     pass_fds: tuple[int, ...] = (),
+    verify_ssl: bool = True,
 ) -> AsyncGenerator[bytes]:
     """
     Get the ffmpeg audio stream as async generator.
@@ -478,6 +493,7 @@ async def get_ffmpeg_stream(
     according to player preferences.
 
     :param pass_fds: Descriptors ffmpeg needs to open its input(s).
+    :param verify_ssl: Whether the certificate of an https source must be verified.
     """
     async with FFMpeg(
         audio_input=audio_input,
@@ -488,6 +504,7 @@ async def get_ffmpeg_stream(
         extra_output_args=extra_output_args,
         collect_log_history=True,
         pass_fds=pass_fds,
+        verify_ssl=verify_ssl,
     ) as ffmpeg_proc:
         # read final chunks from stdout
         iterator = ffmpeg_proc.iter_chunked(chunk_size) if chunk_size else ffmpeg_proc.iter_any()
@@ -597,6 +614,7 @@ def get_ffmpeg_args(
     extra_input_args: list[str] | None = None,
     extra_output_args: list[str] | None = None,
     loglevel: str = "error",
+    verify_ssl: bool = True,
 ) -> list[str]:
     """Collect all args to send to the ffmpeg process."""
     filter_params = list(filter_params)
@@ -616,6 +634,7 @@ def get_ffmpeg_args(
     # collect args for the main input, mirroring how _build_filtergraph_args opens the
     # extra inputs: the read args lead the group so the caller can still override them
     input_args = [*_INPUT_READ_ARGS, *extra_input_args]
+    input_args += tls_verify_args(input_path, verify_ssl)
     if "-f" not in extra_input_args:
         # without an input format of their own, the caller leaves the input spec to us
         if input_path.startswith("http"):

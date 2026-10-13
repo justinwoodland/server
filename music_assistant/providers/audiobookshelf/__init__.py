@@ -179,6 +179,7 @@ class Audiobookshelf(RecommendationPayloadMixin, MusicProvider):
 
     recommendation_payload_version = "2"  # series as collections, authors as artists
     _on_unload_callbacks: list[Callable[[], None]]
+    _verify_ssl: bool = True
 
     def __init__(
         self,
@@ -233,11 +234,11 @@ class Audiobookshelf(RecommendationPayloadMixin, MusicProvider):
         password = str(self.get_setup_value(CONF_PASSWORD))
         token_old = self.get_setup_value(CONF_OLD_TOKEN)
         token_api = self.get_setup_value(CONF_API_TOKEN)
-        verify_ssl = bool(self.get_setup_value(CONF_VERIFY_SSL))
+        self._verify_ssl = bool(self.get_setup_value(CONF_VERIFY_SSL))
         session_config = AbsSessionConfiguration(
             session=self.mass.http_session,
             url=base_url,
-            verify_ssl=verify_ssl,
+            verify_ssl=self._verify_ssl,
             logger=self.logger,
             pagination_items_per_page=30,  # audible provider goes with 50 for pagination
             timeout=AIOHTTP_TIMEOUT,
@@ -972,6 +973,7 @@ for more details.
             can_seek=True,
             allow_seek=True,
             expiration=STREAMDETAILS_EXPIRATION_S,
+            verify_ssl=self._verify_ssl,
         )
 
     async def _get_playback_session(self, mass_item_id: str) -> AbsPlaybackSessionExpanded:

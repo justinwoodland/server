@@ -1131,7 +1131,9 @@ class StreamsAudio:
         temp_file = f"/tmp/{shortuuid.random(20)}.txt"  # noqa: S108
         try:
             async with aiofiles.open(temp_file, "w") as f:
-                await f.write(build_concat_filelist(files_list))
+                await f.write(
+                    build_concat_filelist(files_list, verify_ssl=streamdetails.verify_ssl)
+                )
             async for chunk in get_ffmpeg_stream(
                 audio_input=temp_file,
                 input_format=streamdetails.audio_format,
@@ -4434,6 +4436,7 @@ class StreamsAudio:
             collect_log_history=True,
             loglevel=ffmpeg_loglevel,
             pass_fds=pass_fds,
+            verify_ssl=streamdetails.verify_ssl,
         )
 
         try:
